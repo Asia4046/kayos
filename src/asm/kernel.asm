@@ -17,32 +17,75 @@ main_menu:
     ;; Get user input, print to screen & choose menu option or run command
     ;; --------------------------------------------------------------------
 get_input:
-    mov di, cmdString           ; di now pointing to cmdString
+    mov si, prompt
+    call print_string
+    xor cx, cx                  ; reset byte counter of input
+    mov si, cmdString           ; si now pointing to cmdString
+
+    mov ax, 0x2000              ; reset ES & DS segments to kernel area
+    mov es, ax
+    mov ds, ax
+
 keyloop:
-    mov ax, 0x00                ; ah = 0x00, al = 0x00
-    int 0x16                    ; BIOS int get keystroke ah=00, character goes into al
+    xor ax, ax                  ; ah = 0x0, al = 0x0
+    int 0x16                    ; BIOS int get keystroke ah=0, al <- character
 
     mov ah, 0x0e
-    cmp al, 0xD                 ; did user press 'enter' key?
+    cmp al, 0xD                 ; user pressed enter?
     je run_command
-    int 0x10                    ; if not, print input character to screen
-    mov [di], al                ; store input character to string
-    inc di                      ; go to next byte at di/cmdString
+
+    int 0x10                    ; else print input character to screen
+    mov [si], al                ; store input character to string
+    inc cx                      ; increment byte counter of input
+    inc si                      ; go to next byte at di/cmdString
     jmp keyloop                 ; loop for next character from user
 
 run_command:
-    mov byte [di], 0            ; null terminate cmdString from di
-    mov al, [cmdString]
-    cmp al, 'F'                 ; file table command/menu option
+    cmp cx, 0
+    je input_not_found          ; handle empty input
+
+    mov byte [si], 0            ; else null terminate cmdString from di
+    mov si, cmdString           ; reset si to point to start of user input
+
+check_commands:
+    push cx
+    mov di, cmdDir      
+    repe cmpsb
     je filebrowser
-    cmp al, 'R'                 ; 'warm' reboot option
+
+    pop cx
+    push cx
+    mov di, cmdReboot
+    mov si, cmdString
+    repe cmpsb
     je reboot
-    cmp al, 'P'                 ; print register values
+
+    pop cx
+    push cx
+    mov di, cmdPrtreg
+    mov si, cmdString
+    repe cmpsb
     je registers_print
-    cmp al, 'G'                 ; graphics mode test
+
+    pop cx
+    push cx
+    mov di, cmdGfxtst
+    mov si, cmdString
+    repe cmpsb
     je graphics_test
-    cmp al, 'N'                 ; e(n)d our current program
+
+    pop cx
+    push cx
+    mov di, cmdHlt
+    mov si, cmdString
+    repe cmpsb
     je end_program
+
+    pop cx
+
+check_files:
+
+input_not_found:
     mov si, failure             ; command not found, boo! D:
     call print_string
     jmp get_input
@@ -164,6 +207,9 @@ check_next_char:
 
     cmp al, [di]                ; does user input match file table character?
     je start_compare
+
+    ;; TODO: Add cmp al, ' ' line here and je start_compare
+    ;;  so that user doesn't have to type out name with spaces to work
 
     add bx, 16                  ; if not, go to next file entry in table
     jmp check_next_char
@@ -356,15 +402,22 @@ end_blanks_loop:
     ;; -----------------------------------------------------------
 menuString:     db '---------------------------------',0xA,0xD,\
         'Kernel Booted, Welcome to QuesOS!', 0xA, 0xD,\
-        '---------------------------------', 0xA, 0xD, 0xA, 0xD,\
-        'F) File & Program Browser/Loader', 0xA, 0xD,\
-        'R) Reboot', 0xA, 0xD, \
-        'P) Print Register Values', 0xA, 0xD,\ 
-        'G) Graphics Mode Test', 0xA, 0xD, 0
+        '---------------------------------', 0xA, 0xD, 0xA, 0xD,0
 
-success:        db 0xA, 0xD, 'Program found!', 0xA, 0xD, 0
-failure:        db 0xA, 0xD, 'Oops! Something went wrong :(', 0xA, 0xD, 0
-notLoaded:      db 0xA, 0xD, 'Error! Program Not Loaded, Try Again', 0xA, 0xD, 0
+prompt:         db '>:',0
+
+success:        db 0xA,0xD, 'Program found!', 0xA,0xD,0
+failure:        db 0xA,0xD,'Command/Program not found, try again',0xA,0xD,0
+
+windowsMsg:     db 0xA,0xD, 'Oops! Something went wrong :(', 0xA,0xD,0
+notLoaded:      db 0xA,0xD, 'Error! Program Not Loaded, Try Again',0xA,0xD,0
+
+        ;; Prompt commands
+cmdDir:         db 'dir',0      ; directory command; list all files/pgms on disk
+cmdReboot:      db 'reboot',0   ; 'warm' reboot option
+cmdPrtreg:      db 'prtreg',0   ; print register values
+cmdGfxtst:      db 'gfxtst',0   ; graphics mode test
+cmdHlt:         db 'hlt',0      ; e(n)d our current program
 
 fileTableHeading:   db '---------   ---------   -------   ------------   --------------',\
         0xA,0xD,'File Name   Extension   Entry #   Start Sector   Size (sectors)',\
