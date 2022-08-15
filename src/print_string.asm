@@ -4,8 +4,9 @@
 
 print_string:
          pusha     
+         mov ah, 0x0e
     
-print_char:                  ;
+print_char:                         ;
         mov al, [bx]                ; move character value at address in bx into al
         cmp al, 0
         je end_print                ; jump if equal (al = 0) to halt label

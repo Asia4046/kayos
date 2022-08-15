@@ -14,21 +14,26 @@
     mov bl, 0x01
     int 0x10
 
-    ;; Tele-type output
-    mov ah, 0x0e                ; int 10/ ah 0x0e BIOS teletype output
+    ;; Tele-type output strings
     mov bx, testString          ; moving memory address at testString into BX register
 
     call print_string
     mov bx, string2
     call print_string
-    
-    jmp $
 
+    mov dx, 0x12AB              ; sample hex number to print
+    call print_hex
+
+    ;; End pgm
+    jmp $                       ; keep jumping to here; neverending loop
+
+    ;; Included Files
     include 'print_string.asm'
+    include 'print_hex.asm'
 
     ;; Variables
-testString:     db 'KayOS Beta v0.0.1', 0xA, 0xD, 0   ; 0/null to null terminate
-string2:        db 'Copyright 2022 KTeam Inc.', 0
+testString:     db 'Char test: Testing', 0xA, 0xD, 0   ; 0/null to null terminate
+string2:        db 'Hex Test: ', 0
 
     ;; Boot Sector magic
     times 510-($-$$) db 0       ; pads out 0s until we reach 510th byte
