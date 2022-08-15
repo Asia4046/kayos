@@ -13,7 +13,7 @@
     mov dh, 0x0                 ; head 0
     mov dl, 0x0                 ; drive 0
     mov ch, 0x0                 ; cylinder 0
-    mov cl, 0x02                ; starting sector to read from disk
+    mov cl, 0x05                ; starting sector to read from disk
 
 read_disk1:
     mov ah, 0x02                ; BIOS int 13h/ah=2 read disk sectors
@@ -32,7 +32,7 @@ read_disk1:
     mov dh, 0x0                 ; head 0
     mov dl, 0x0                 ; drive 0
     mov ch, 0x0                 ; cylinder 0
-    mov cl, 0x03                ; starting sector to read from disk
+    mov cl, 0x02                ; starting sector to read from disk
 
 read_disk2:
     mov ah, 0x02                ; BIOS int 13h/ah=2 read disk sectors

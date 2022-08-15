@@ -60,50 +60,79 @@ filebrowser:
     ;; Load File Table string from its memory location (0x1000:0000), print file
     ;;  and program names & sector numbers to screen, for user to choose
     ;; -------------------------------------------------------------------
-    xor cx, cx              ; reset counter for # chars in file/pgm name
+    xor cx, cx              ; reset counter for # of bytes at current filetable entry
     mov ax, 0x1000          ; file table location
     mov es, ax              ; ES = 0x1000
     xor bx, bx              ; ES:BX = 0x1000:0
     mov ah, 0x0e            ; get ready to print to screen
 
-fileTable_Loop:
+filename_loop:
+    mov al, [ES:BX]
+    cmp al, 0               ; is file name null? at end of filetable?
+    je get_program_name     ; no more names? at end of file table, move on
+
+    int 0x10                ; otherwise print char in al to screen
+    cmp cx, 9               ; if at end of name, go on
+    je file_ext
+    inc cx                  ; increment file entry byte counter
+    inc bx                  ; get next byte at filetable
+    jmp filename_loop
+
+file_ext:
+    ;; 2 blanks before file extension
+    mov cx, 2
+    call print_blanks_loop
+
     inc bx
     mov al, [ES:BX]
-    cmp al, '}'             ; at end of filetable?
-    je get_program_name
-    cmp al, '-'             ; at sector number of element?
-    je sectorNumber_Loop
-    cmp al, ','             ; between table elements?
-    je next_element
-    inc cx                  ; increment counter
     int 0x10
-    jmp fileTable_Loop
-
-sectorNumber_Loop:
-    cmp cx, 21
-    je fileTable_Loop
-    mov al, ' '
+    inc bx
+    mov al, [ES:BX]
     int 0x10
-    inc cx
-    jmp sectorNumber_Loop
+    inc bx
+    mov al, [ES:BX]
+    int 0x10
+    
+dir_entry_number:
+    ;; 9 blanks before entry #
+    mov cx, 9
+    call print_blanks_loop
 
-next_element:
-    xor cx, cx              ; reset counter
+    inc bx
+    mov al, [ES:BX]
+    call print_hex_as_ascii
+
+start_sector_number:
+    ;; 9 blanks before starting sector
+    mov cx, 9
+    call print_blanks_loop
+
+    inc bx
+    mov al, [ES:BX]
+    call print_hex_as_ascii
+
+file_size:
+    ;; 13 blanks before file size
+    mov cx, 14
+    call print_blanks_loop
+
+    inc bx
+    mov al, [ES:BX]
+    call print_hex_as_ascii
     mov al, 0xA
     int 0x10
     mov al, 0xD
     int 0x10
-    mov al, 0xA
-    int 0x10
-    mov al, 0xD
-    int 0x10
-    jmp fileTable_Loop
+
+    inc bx                  ; get first byte of next file name
+    xor cx, cx              ; reset counter for next file name
+    jmp filename_loop
 
     ;; After File table printed to screen, user can input program to load
     ;; ------------------------------------------------------------------
+    ;; TODO: Change to accomadate new file table layout
 get_program_name:
-    mov ah, 0x0e                ; print newline...
-    mov al, 0xA
+    mov al, 0xA                 ; print newline...
     int 0x10
     mov al, 0xD
     int 0x10
@@ -111,16 +140,16 @@ get_program_name:
     mov byte [cmdLength], 0     ; reset counter & length of user input
 
 pgm_name_loop:
-    mov ax, 0x00                ; get keystroke
-    int 0x16                    ; character goes into al
+    xor ax, ax                  ; ah = 0x0, al = 0x0
+    int 0x16                    ; BIOS int get keystroke ah = 0, al <- character
 
-    mov ah, 0x0e                ; teletype output
-    cmp al, 0xD                 ; did user press 'enter' key?
+    mov ah, 0x0e                ; BIOS teletype output
+    cmp al, 0xD                 ; user pressed enter?
     je start_search
 
     inc byte [cmdLength]        ; if not, add to counter
-    mov [di], al                ; store input char to command string
-    inc di
+    mov [di], al                ; store input char to string    
+    inc di                      ; go to next byte at di/cmdString
     int 0x10                    ; print input character to screen
     jmp pgm_name_loop           ; loop for next character from user
 
@@ -130,13 +159,13 @@ start_search:
 
 check_next_char:
     mov al, [ES:BX]             ; get file table char
-    cmp al, '}'                 ; at end of file table?
+    cmp al, 0                   ; at end of file table?
     je pgm_not_found            ; if yes, program was not found
 
     cmp al, [di]                ; does user input match file table character?
     je start_compare
 
-    inc bx                      ; if not, get next char in filetable and recheck
+    add bx, 16                  ; if not, go to next file entry in table
     jmp check_next_char
 
 start_compare:
@@ -171,53 +200,24 @@ pgm_not_found:
     je filebrowser              ; reload file browser screen to search again
     jmp fileTable_end           ; else go back to main menu
 
-    ;; Get sector number after pgm name in file table
-    ;; ----------------------------------------------
-found_program:
-    inc bx
-    mov cl, 10              ; use to get sector number
-    xor al, al              ; reset al to 0
-
-next_sector_number:
-    mov dl, [ES:BX]         ; checking next byte of file table
-    inc bx                  
-    cmp dl, ','             ; at end of sector number?
-    je load_program         ; if so, load program from that sector
-    cmp dl, 48              ; else, check if al is '0'-'9' in ascii
-    jl sector_not_found     ; before '0', not a number
-    cmp dl, 57              
-    jg sector_not_found     ; after '9', not a number
-    sub dl, 48              ; convert ascii char to integer
-    mul cl                  ; al * cl (al * 10), result in AH/AL (AX)
-    add al, dl              ; al = al + dl
-    jmp next_sector_number
-
-sector_not_found:
-    mov si, sectNotFound    ; did not find program name in file table
-    call print_string
-    mov ah, 0x00            ; get keystroke, print to screen
-    int 0x16
-    mov ah, 0x0e
-    int 0x10
-    cmp al, 'Y'
-    je filebrowser          ; reload file browser screen to search again
-    jmp fileTable_end       ; else go back to main menu
-
     ;; read disk sector of program to memory and execute it by far jumping
     ;; -------------------------------------------------------------------
-load_program:
-    mov cl, al              ; cl = sector # to start loading/reading at
+found_program:
+    add bx, 4               ; go to starting sector # in file table entry
+    mov cl, [ES:BX]         ; sector number to start reading at
+    inc bx
+    mov bl, [ES:BX]         ; file size in sectors / # of sectors to read
 
-    mov ah, 0x00            ; int 13h ah 0 = reset disk system
-    mov dl, 0x00
-    int 0x13
+    xor ax, ax              
+    mov dl, 0x00            ; disk #
+    int 0x13                ; int 13h ah 0 = reset disk system
 
     mov ax, 0x8000          ; memory location to load pgm to
     mov es, ax
+    mov al, bl              ; # of sectors to read
     xor bx, bx              ; ES:BX -> 0x8000:0x0000
 
     mov ah, 0x02            ; int 13 ah 02 = read disk sectors to memory
-    mov al, 0x01            ; # of sectors to read
     mov ch, 0x00            ; track #
     mov dh, 0x00            ; head #
     mov dl, 0x00            ; drive #
@@ -319,6 +319,29 @@ end_program:
     ;; End Main Logic
     ;; ===========================================================
 
+    ;; Small routine to convert hex byte to ascii, assume hex digit in AL
+print_hex_as_ascii:
+    mov ah, 0x0e
+    add al, 0x30        ; convert to ascii number
+    cmp al, 0x39        ; is value 0h-9h or A-F
+    jle hexNum
+    add al, 0x7         ; add hex 7 to get ascii 'A' - 'F'
+hexNum:
+    int 0x10
+    ret
+    
+    ;; Small routine to print out cx # of spaces to screen
+print_blanks_loop:
+    cmp cx, 0
+    je end_blanks_loop
+    mov ah, 0x0e
+    mov al, ' '
+    int 0x10
+    dec cx
+    jmp print_blanks_loop
+end_blanks_loop:
+    ret
+
     ;; -----------------------------------------------------------
     ;; Include Files
     ;; -----------------------------------------------------------
@@ -343,9 +366,10 @@ success:        db 0xA, 0xD, 'Program found!', 0xA, 0xD, 0
 failure:        db 0xA, 0xD, 'Oops! Something went wrong :(', 0xA, 0xD, 0
 notLoaded:      db 0xA, 0xD, 'Error! Program Not Loaded, Try Again', 0xA, 0xD, 0
 
-fileTableHeading:       db '------------         ------',0xA,0xD,\
-        'File/Program         Sector', 0xA, 0xD,\
-        '------------         ------',0xA, 0xD, 0
+fileTableHeading:   db '---------   ---------   -------   ------------   --------------',\
+        0xA,0xD,'File Name   Extension   Entry #   Start Sector   Size (sectors)',\
+        0xA,0xD,'---------   ---------   -------   ------------   --------------',\
+        0xA,0xD,0
 
 printRegHeading:        db '--------   ------------',0xA,0xD,\
         'Register   Mem Location', 0xA,0xD,\
