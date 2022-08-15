@@ -51,7 +51,7 @@ check_commands:
     push cx
     mov di, cmdDir      
     repe cmpsb
-    je filebrowser
+    je fileTable_print
 
     pop cx
     push cx
@@ -82,177 +82,68 @@ check_commands:
     je end_program
 
     pop cx
+    push cx
+    mov di, cmdCls
+    mov si, cmdString
+    repe cmpsb
+    je clear_screen
+
+    pop cx                      ; reset command length
 
 check_files:
+    mov ax, 1000h               ; reset ES:BX to start of file table (0x1000:0x0000)
+    mov es, ax
+    xor bx, bx                  
 
-input_not_found:
-    mov si, failure             ; command not found, boo! D:
-    call print_string
-    jmp get_input
-
-    ;; -----------------------------------------------------------
-    ;; Menu F) - File/Program browser & loader
-    ;; -----------------------------------------------------------
-filebrowser:
-    ;; Reset screen state
-    call resetTextScreen
-
-    mov si, fileTableHeading
-    call print_string
-
-    ;; Load File Table string from its memory location (0x1000:0000), print file
-    ;;  and program names & sector numbers to screen, for user to choose
-    ;; -------------------------------------------------------------------
-    xor cx, cx              ; reset counter for # of bytes at current filetable entry
-    mov ax, 0x1000          ; file table location
-    mov es, ax              ; ES = 0x1000
-    xor bx, bx              ; ES:BX = 0x1000:0
-    mov ah, 0x0e            ; get ready to print to screen
-
-filename_loop:
-    mov al, [ES:BX]
-    cmp al, 0               ; is file name null? at end of filetable?
-    je get_program_name     ; no more names? at end of file table, move on
-
-    int 0x10                ; otherwise print char in al to screen
-    cmp cx, 9               ; if at end of name, go on
-    je file_ext
-    inc cx                  ; increment file entry byte counter
-    inc bx                  ; get next byte at filetable
-    jmp filename_loop
-
-file_ext:
-    ;; 2 blanks before file extension
-    mov cx, 2
-    call print_blanks_loop
-
-    inc bx
-    mov al, [ES:BX]
-    int 0x10
-    inc bx
-    mov al, [ES:BX]
-    int 0x10
-    inc bx
-    mov al, [ES:BX]
-    int 0x10
-    
-dir_entry_number:
-    ;; 9 blanks before entry #
-    mov cx, 9
-    call print_blanks_loop
-
-    inc bx
-    mov al, [ES:BX]
-    call print_hex_as_ascii
-
-start_sector_number:
-    ;; 9 blanks before starting sector
-    mov cx, 9
-    call print_blanks_loop
-
-    inc bx
-    mov al, [ES:BX]
-    call print_hex_as_ascii
-
-file_size:
-    ;; 13 blanks before file size
-    mov cx, 14
-    call print_blanks_loop
-
-    inc bx
-    mov al, [ES:BX]
-    call print_hex_as_ascii
-    mov al, 0xA
-    int 0x10
-    mov al, 0xD
-    int 0x10
-
-    inc bx                  ; get first byte of next file name
-    xor cx, cx              ; reset counter for next file name
-    jmp filename_loop
-
-    ;; After File table printed to screen, user can input program to load
-    ;; ------------------------------------------------------------------
-    ;; TODO: Change to accomadate new file table layout
-get_program_name:
-    mov al, 0xA                 ; print newline...
-    int 0x10
-    mov al, 0xD
-    int 0x10
-    mov di, cmdString           ; di now pointing to cmdString
-    mov byte [cmdLength], 0     ; reset counter & length of user input
-
-pgm_name_loop:
-    xor ax, ax                  ; ah = 0x0, al = 0x0
-    int 0x16                    ; BIOS int get keystroke ah = 0, al <- character
-
-    mov ah, 0x0e                ; BIOS teletype output
-    cmp al, 0xD                 ; user pressed enter?
-    je start_search
-
-    inc byte [cmdLength]        ; if not, add to counter
-    mov [di], al                ; store input char to string    
-    inc di                      ; go to next byte at di/cmdString
-    int 0x10                    ; print input character to screen
-    jmp pgm_name_loop           ; loop for next character from user
-
-start_search:
-    mov di, cmdString           ; reset di, point to start of command string
-    xor bx, bx                  ; reset ES:BX to point to beginning of file table
+    mov si, cmdString           ; reset si to start of user input string
 
 check_next_char:
     mov al, [ES:BX]             ; get file table char
     cmp al, 0                   ; at end of file table?
-    je pgm_not_found            ; if yes, program was not found
+    je input_not_found          ; if so, no file/pgm found for user input :(
 
-    cmp al, [di]                ; does user input match file table character?
+    cmp al, [si]                ; does user input match file table character?
     je start_compare
-
-    ;; TODO: Add cmp al, ' ' line here and je start_compare
-    ;;  so that user doesn't have to type out name with spaces to work
 
     add bx, 16                  ; if not, go to next file entry in table
     jmp check_next_char
 
 start_compare:
     push bx                     ; save file table position
-    mov byte cl, [cmdLength]
 
 compare_loop:
     mov al, [ES:BX]             ; get file table char
     inc bx                      ; next byte in input/filetable
-    cmp al, [di]                ; does input match filetable char?
+    cmp al, [si]                ; does input match filetable char?
     jne restart_search          ; if not search again from this point in filetable
 
     dec cl                      ; if it does match, decrement length counter
     jz found_program            ; counter = 0, input found in filetable
-    inc di                      ; else go to next byte of input
+    inc si                      ; else go to next byte of input
     jmp compare_loop
 
 restart_search:
-    mov di, cmdString           ; else, reset to start of user input
+    mov si, cmdString           ; else, reset to start of user input
     pop bx                      ; get the saved file table position
     inc bx                      ; go to next char in file table
     jmp check_next_char         ; start checking again
 
-pgm_not_found:
-    mov si, notFoundString      ; did not find program name in file table
-    call print_string
-    mov ah, 0x00                ; get keystroke, print to screen
-    int 0x16
-    mov ah, 0x0e
-    int 0x10
-    cmp al, 'Y'
-    je filebrowser              ; reload file browser screen to search again
-    jmp fileTable_end           ; else go back to main menu
-
     ;; read disk sector of program to memory and execute it by far jumping
     ;; -------------------------------------------------------------------
 found_program:
+    ;; Get file extension - bytes 10-12 of file table entry
+    mov al, [ES:BX]
+    mov [fileExt], al
+    mov al, [ES:BX+1]
+    mov [fileExt+1], al
+    mov al, [ES:BX+2]
+    mov [fileExt+2], al
+
     add bx, 4               ; go to starting sector # in file table entry
     mov cl, [ES:BX]         ; sector number to start reading at
     inc bx
     mov bl, [ES:BX]         ; file size in sectors / # of sectors to read
+    mov byte [fileSize], bl
 
     xor ax, ax              
     mov dl, 0x00            ; disk #
@@ -261,7 +152,7 @@ found_program:
     mov ax, 0x8000          ; memory location to load pgm to
     mov es, ax
     mov al, bl              ; # of sectors to read
-    xor bx, bx              ; ES:BX -> 0x8000:0x0000
+    xor bx, bx              ; ES:BX <- 0x8000:0x0000
 
     mov ah, 0x02            ; int 13 ah 02 = read disk sectors to memory
     mov ch, 0x00            ; track #
@@ -269,29 +160,72 @@ found_program:
     mov dl, 0x00            ; drive #
 
     int 0x13
-    jnc pgm_loaded          ; carry flag not set, success
+    jnc run_program         ; carry flag not set, success
 
-    mov si, notLoaded       ; else error, program did not load correctly
+    mov si, pgmNotLoaded    ; else error, program did not load correctly
     call print_string
-    mov ah, 0x00
-    int 0x16
-    jmp filebrowser         ; reload file table
+    jmp get_input           ; go back to prompt for input
 
-pgm_loaded:
+run_program:
+    ;; Check file extension in file table entry, if 'bin'/binary, then far jump & run
+    ;;   Else if 'txt', then print content to screen
+    mov cx, 3
+    mov si, fileExt
+    mov ax, 2000h           ; Reset es to kernel space for comparison (ES = DS)
+    mov es, ax              ; ES <- 0x2000
+    mov di, fileBin
+    repe cmpsb
+    jne print_txt_file
+
     mov ax, 0x8000          ; program loaded, set segment registers to location
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
     mov ss, ax
-    jmp 0x8000:0x0000       ; far jump to program
+    jmp 0x8000:0x0000       ; far jump to program to execute
 
-fileTable_end:
-    mov si, goBackMsg       ; show go back message
+print_txt_file:
+    mov ax, 8000h           ; Set ES back to file memory location
+    mov es, ax              ; ES <- 0x8000
+    xor cx, cx
+    mov ah, 0Eh
+
+    ;; Get size of filesize in bytes (512 byte per sector)
+add_cx_size:
+    cmp byte [fileSize], 0
+    je print_file_char
+    add cx, 512
+    dec byte [fileSize]
+    jne add_cx_size
+
+print_file_char:
+    mov al, [ES:BX]
+    cmp al, 0Fh
+    jle call_h_to_a
+
+return_file_char:
+    int 10h                     ; Print file character to screen
+    inc bx
+    loop print_file_char        ; Keep printing characters and decrement CX till 0
+    jmp get_input               ; after all printed, go back to prompt
+
+call_h_to_a:
+    call hex_to_ascii
+    jmp return_file_char
+    
+input_not_found:
+    mov si, failure             ; command not found, boo! D:
     call print_string
-    mov ah, 0x00            ; get keystroke
-    int 0x16
-    jmp main_menu           ; go back to main menu
+    jmp get_input
+
+    ;; -----------------------------------------------------------
+    ;; Menu F) - File/Program browser & loader
+    ;; -----------------------------------------------------------
+fileTable_print:
+    call print_fileTable
+    jmp get_input
+
 
     ;; -----------------------------------------------------------
     ;; Menu R) - Reboot: far jump to reset vector
@@ -303,21 +237,11 @@ reboot:
     ;; Menu P) - Print Register Values
     ;; -----------------------------------------------------------
 registers_print:
-    ;; Reset screen state
-    call resetTextScreen
-
-    ;; print register values to screen
     mov si, printRegHeading
     call print_string
 
     call print_registers
-
-    ;; Go back to main menu
-    mov si, goBackMsg
-    call print_string
-    mov ah, 0x00
-    int 0x16                ; get keystroke
-    jmp main_menu           ; go back to main menu
+    jmp get_input           ; return to prompt '>:'
 
     ;; -----------------------------------------------------------
     ;; Menu G) - Graphics Mode Test(s)
@@ -355,7 +279,14 @@ squareColLoop:
     jmp main_menu
 
     ;; -----------------------------------------------------------
-    ;; Menu N) - End Pgm
+    ;; Clear Screen
+    ;; -----------------------------------------------------------
+clear_screen:
+    call resetTextScreen
+    jmp get_input
+
+    ;; -----------------------------------------------------------
+    ;; End Pgm
     ;; -----------------------------------------------------------
 end_program:
     cli                         ; clear interrupts
@@ -366,26 +297,21 @@ end_program:
     ;; ===========================================================
 
     ;; Small routine to convert hex byte to ascii, assume hex digit in AL
-print_hex_as_ascii:
-    mov ah, 0x0e
-    add al, 0x30        ; convert to ascii number
-    cmp al, 0x39        ; is value 0h-9h or A-F
+hex_to_ascii:
+    mov ah, 0Eh
+    add al, 30h         ; convert to ascii number
+    cmp al, 39h         ; is value 0h-9h or A-F
     jle hexNum
-    add al, 0x7         ; add hex 7 to get ascii 'A' - 'F'
+    add al, 07h         ; add hex 7 to get ascii 'A' - 'F'
 hexNum:
-    int 0x10
     ret
     
     ;; Small routine to print out cx # of spaces to screen
 print_blanks_loop:
-    cmp cx, 0
-    je end_blanks_loop
-    mov ah, 0x0e
+    mov ah, 0Eh
     mov al, ' '
-    int 0x10
-    dec cx
-    jmp print_blanks_loop
-end_blanks_loop:
+    int 10h
+    loop print_blanks_loop
     ret
 
     ;; -----------------------------------------------------------
@@ -394,23 +320,26 @@ end_blanks_loop:
     include "../print/print_string.asm"
     include "../print/print_hex.asm"
     include "../print/print_registers.asm"
+    include "../print/print_fileTable.asm"
+    ;include "../screen/clearScreen.asm"
     include "../screen/resetTextScreen.asm"
     include "../screen/resetGraphicsScreen.asm"
 
     ;; -----------------------------------------------------------
     ;; Variables
     ;; -----------------------------------------------------------
-menuString:     db '---------------------------------',0xA,0xD,\
-        'Kernel Booted, Welcome to QuesOS!', 0xA, 0xD,\
-        '---------------------------------', 0xA, 0xD, 0xA, 0xD,0
+    nl equ 0xA,0xD
+menuString:     db '---------------------------------',nl,\
+        'Kernel Booted, Welcome to KayOS!', nl,\
+        '---------------------------------', nl, nl,0
 
 prompt:         db '>:',0
 
-success:        db 0xA,0xD, 'Program found!', 0xA,0xD,0
-failure:        db 0xA,0xD,'Command/Program not found, try again',0xA,0xD,0
+success:        db nl, 'Program found!', nl,0
+failure:        db nl,'Command/Program not found, try again',0xA,0xD,0
 
-windowsMsg:     db 0xA,0xD, 'Oops! Something went wrong :(', 0xA,0xD,0
-notLoaded:      db 0xA,0xD, 'Error! Program Not Loaded, Try Again',0xA,0xD,0
+windowsMsg:     db nl, 'Oops! Something went wrong :(', nl,0
+pgmNotLoaded:   db nl, 'Program found but not Loaded, Try Again',nl,0
 
         ;; Prompt commands
 cmdDir:         db 'dir',0      ; directory command; list all files/pgms on disk
@@ -418,23 +347,29 @@ cmdReboot:      db 'reboot',0   ; 'warm' reboot option
 cmdPrtreg:      db 'prtreg',0   ; print register values
 cmdGfxtst:      db 'gfxtst',0   ; graphics mode test
 cmdHlt:         db 'hlt',0      ; e(n)d our current program
+cmdCls:         db 'cls',0      ; clear screen by scrolling
+cmdEditor:      db 'editor',0   ; launch editor program
 
-fileTableHeading:   db '---------   ---------   -------   ------------   --------------',\
-        0xA,0xD,'File Name   Extension   Entry #   Start Sector   Size (sectors)',\
-        0xA,0xD,'---------   ---------   -------   ------------   --------------',\
-        0xA,0xD,0
+fileTableHeading:   db nl, '---------   ---------   -------   ------------   --------------',\
+        nl,'File Name   Extension   Entry #   Start Sector   Size (sectors)',\
+        nl,'---------   ---------   -------   ------------   --------------',\
+        nl,0
 
-printRegHeading:        db '--------   ------------',0xA,0xD,\
-        'Register   Mem Location', 0xA,0xD,\
-        '--------   ------------',0xA,0xD,0
+printRegHeading:        db nl, '--------   ------------',nl,\
+        'Register   Mem Location', nl,\
+        '--------   ------------',nl,0
 
-notFoundString:     db 0xA,0xD,'program not found!, try again? (Y)',0xA,0xD,0
-sectNotFound:       db 0xA,0xD,'sector not found!, try again? (Y)',0xA,0xD,0
+notFoundString:     db nl,'program/file not found!, try again? (Y)',nl,0
+sectNotFound:       db nl,'sector not found!, try again? (Y)',nl,0
 
 cmdLength:          db 0
 
-goBackMsg:      db 0xA, 0xD, 0xA, 0xD, 'Press any key to go back...', 0
-dbgTest:        db 'Test',0
+goBackMsg:      db nl, nl, 'Press any key to go back...', 0
+dbgTest:        db nl,'Test',nl,0
+fileExt:        db '   ',0
+fileSize:       db 0
+fileBin:        db 'bin',0
+fileTxt:        db 'txt',0
 cmdString:      db ' ', 0
 
     ;; -----------------------------------------------------------
