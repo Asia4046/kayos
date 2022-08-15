@@ -21,27 +21,14 @@
     call print_string
     mov bx, string2
     call print_string
-    jmp end_pgm
+    
+    jmp $
 
     include 'print_string.asm'
-
-print_string:
-    mov al, [bx]                ; move character value at address in bx into al
-    cmp al, 0
-    je end_print                ; jump if equal (al = 0) to halt label
-    int 0x10                    ; print character in al
-    add bx, 1                   ; move 1 byte forward/ get next character
-    jmp print_string            ; loop
-
-end_print:
-    ret
 
     ;; Variables
 testString:     db 'KayOS Beta v0.0.1', 0xA, 0xD, 0   ; 0/null to null terminate
 string2:        db 'Copyright 2022 KTeam Inc.', 0
-
-end_pgm:
-    jmp $                       ; keep jumping to here; neverending loop
 
     ;; Boot Sector magic
     times 510-($-$$) db 0       ; pads out 0s until we reach 510th byte
