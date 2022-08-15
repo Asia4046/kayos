@@ -2,8 +2,8 @@
 #-----------------------------------
 
 # Create the OS.bin file (use 'Make OS')
-OS: bootSect.bin fileTable.bin kernel.bin
-	cat bootSect.bin fileTable.bin kernel.bin > OS.bin
+OS: bootSect.bin fileTable.bin kernel.bin calculator.bin
+	cat bootSect.bin fileTable.bin kernel.bin calculator.bin > OS.bin
 
 # Create bootsector binary file (use 'Make bootSect.bin')
 bootSect.bin:
@@ -19,6 +19,10 @@ fileTable.bin:
 kernel.bin:
 	fasm ../src/asm/kernel.asm
 	mv ../src/asm/kernel.bin ./
+
+calculator.bin:
+	fasm ../src/asm/calculator.asm
+	mv ../src/asm/calculator.bin ./
 
 # Clean up binary files (use 'Make clean')
 clean:
