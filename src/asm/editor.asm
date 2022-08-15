@@ -85,3 +85,5 @@ hex_code:   times 255 db 0
 
     ;; sector padding
     times 1024-($-$$) db 0
+    ;; sector padding
+    times 1024-($-$$) db 0
